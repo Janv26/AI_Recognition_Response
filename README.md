@@ -29,7 +29,7 @@ GROQ_BASE_URL=https://api.groq.com/openai/v1
 GOOGLE_CLIENT_ID=your-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
-GOOGLE_FRONTEND_REDIRECT_URI=http://localhost:3000/login
+GOOGLE_FRONTEND_REDIRECT_URI=http://localhost:5173/login
 ```
 
 `AUTH_SECRET` signs 12-hour access tokens. Generate it once with
@@ -60,7 +60,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Open <http://127.0.0.1:8000/docs> for the API schema. The development CORS
-allowlist includes `http://localhost:3000` and `http://127.0.0.1:3000`.
+allowlist includes `http://localhost:5173` and `http://127.0.0.1:5173`.
 
 ## Endpoints
 
