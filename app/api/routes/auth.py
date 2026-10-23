@@ -237,8 +237,10 @@ async def google_login_callback(
         google_oauth_configuration()
     )
     state_cookie = request.cookies.get("google_oauth_state")
-    print("State cookie received:", bool(state_cookie))
+    print("Returned state exists:", bool(state))
+    print("Cookie state exists:", bool(state_cookie))
     print("State matches:", bool(state_cookie) and secrets.compare_digest(state, state_cookie))
+    
     if not state_cookie or not secrets.compare_digest(state, state_cookie):
         raise HTTPException(
             status_code=400,
