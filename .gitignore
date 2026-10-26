@@ -5,3 +5,9 @@ __pycache__/
 .env.*
 !.env.example
 .vscode/
+node_modules/
+dist/
+dist-ssr/
+logs/
+*.log
+*.local
