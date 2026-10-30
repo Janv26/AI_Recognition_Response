@@ -190,17 +190,34 @@ function App() {
 
 const recognitionRef = useRef(null)
 
+useEffect(() => () => {
+  const recognition = recognitionRef.current
+  if (!recognition) return
+
+  recognition.onresult = null
+  recognition.onerror = null
+  recognition.onend = null
+  recognitionRef.current = null
+  recognition.abort()
+}, [])
+
 function startVoiceInput() {
+  if (recognitionRef.current) {
+    try {
+      recognitionRef.current.stop()
+      setListening(false)
+    } catch (error) {
+      console.error('Could not stop speech recognition:', error)
+      setError('Could not stop voice input. Please try again.')
+    }
+    return
+  }
+
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition
 
   if (!SpeechRecognition) {
     setError('Voice input is not supported in this browser. Try Chrome or Edge.')
-    return
-  }
-
-  // Prevent starting another session while one is already listening
-  if (recognitionRef.current) {
     return
   }
 
@@ -216,8 +233,19 @@ function startVoiceInput() {
   }
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript
-    sendMessage(transcript, true)
+    const transcript = Array.from(event.results)
+      .slice(event.resultIndex)
+      .filter((result) => result.isFinal)
+      .map((result) => result[0].transcript.trim())
+      .filter(Boolean)
+      .join(' ')
+
+    if (!transcript) return
+
+    setInput((current) => {
+      const separator = current && !/\s$/.test(current) ? ' ' : ''
+      return `${current}${separator}${transcript}`
+    })
   }
 
   recognition.onerror = (event) => {

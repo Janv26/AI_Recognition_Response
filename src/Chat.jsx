@@ -185,7 +185,7 @@ function Chat({
               <div className="composer-hint"><ShieldCheck size={14} /><span>Your conversations are private</span></div>
 
               <div className="composer-actions">
-                <button className={`mic-button ${listening ? 'recording' : ''}`} type="button" onClick={onStartVoiceInput} aria-label="Speak a message" title={listening ? 'Listening…' : 'Speak a message'}><Mic size={17} /></button>
+                <button className={`mic-button ${listening ? 'recording' : ''}`} type="button" onClick={onStartVoiceInput} aria-label={listening ? 'Stop recording' : 'Start voice input'} aria-pressed={listening} title={listening ? 'Stop recording' : 'Speak a message'}><Mic size={17} /></button>
                 <button className="send-button" type="submit" disabled={!input.trim() || sending} aria-label="Send message" title="Send message"><ArrowUp size={18} /></button>
               </div>
             </div>
