@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 
 from dotenv import load_dotenv
 
@@ -18,6 +21,27 @@ from app.api.routes.settings import router as settings_router
 from app.api.routes.voice import router as voice_router
 
 app = FastAPI(title="AI Recognition API")
+
+
+@app.exception_handler(RequestValidationError)
+async def reset_password_validation_error_handler(
+    request: Request,
+    error: RequestValidationError,
+) -> Response:
+    if request.url.path != "/api/auth/reset-password":
+        return await request_validation_exception_handler(request, error)
+
+    details = [
+        {
+            key: value
+            for key, value in item.items()
+            if key not in {"input", "ctx"}
+        }
+        for item in error.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": details})
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

@@ -68,6 +68,8 @@ allowlist includes `http://localhost:5173` and `http://127.0.0.1:5173`.
 | --- | --- |
 | `POST /api/auth/signup` | Create a user from `fullname`, `email`, `password`, and `confirmPassword`; returns user details and an access token. |
 | `POST /api/auth/login` | Verify `email`/`password`; returns user details and an access token. |
+| `POST /api/auth/forgot-password` | Request a password reset email; returns a generic response to avoid account enumeration. |
+| `POST /api/auth/reset-password` | Set a new password with a valid, single-use reset token. |
 | `GET /api/auth/google` | Redirect the browser to Google sign-in. |
 | `GET /api/auth/google/callback` | Validate Google's response and redirect with a one-time login code. |
 | `POST /api/auth/google/exchange` | Exchange a one-time Google login code for the backend access token. |
@@ -88,3 +90,32 @@ Authenticated endpoints accept `Authorization: Bearer <token>` and the legacy
 as an alias for `email` for compatibility with the existing client contract.
 `confirmPassword` is a frontend-only field and is not accepted or stored by
 the backend.
+
+## Password reset
+
+Configure Gmail SMTP in the backend `.env` file:
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_EMAIL=your-gmail-address@gmail.com
+SMTP_APP_PASSWORD=your-gmail-app-password
+PASSWORD_RESET_FRONTEND_URL=http://localhost:5173/reset-password
+```
+
+Use a Gmail App Password, not your regular Google password. Keep SMTP
+credentials in the backend environment; do not commit them. Use HTTPS for the
+reset URL in production.
+
+For an existing database, run
+[20261029_password_reset_tokens.sql](./migrations/20261029_password_reset_tokens.sql)
+in Supabase SQL Editor. The updated [schema.sql](./schema.sql) includes the
+table for fresh database setup. Reset tokens are stored as SHA-256 hashes,
+expire after 30 minutes, and can only be used once. Password reset does not
+revoke already-issued access tokens.
+
+Run the automated backend tests with:
+
+```powershell
+python -m unittest discover -s tests -v
+```

@@ -1,19 +1,27 @@
 import asyncio
 import hashlib
+import logging
 import os
 import secrets
+import smtplib
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
 import jwt
 import psycopg
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, model_validator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.database import run_query
+from app.api.password_reset import (
+    build_password_reset_url,
+    password_reset_rate_limiter,
+    send_password_reset_email,
+    validate_password_reset_configuration,
+)
 from app.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -23,10 +31,15 @@ from app.security import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 GOOGLE_STATE_ISSUER = "ai-recog-google-oauth"
 GOOGLE_STATE_AUDIENCE = "ai-recog-google-oauth"
 GOOGLE_STATE_LIFETIME = timedelta(minutes=10)
 GOOGLE_LOGIN_CODE_LIFETIME = timedelta(minutes=2)
+PASSWORD_RESET_TOKEN_LIFETIME = timedelta(minutes=30)
+PASSWORD_RESET_GENERIC_MESSAGE = (
+    "If an account exists for that email, a password reset link will be sent."
+)
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
@@ -80,6 +93,34 @@ class AuthResult(BaseModel):
 
 class GoogleCodeExchange(BaseModel):
     code: str = Field(min_length=32, max_length=256)
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    token: str = Field(min_length=32, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
+    confirm_password: str = Field(
+        min_length=8,
+        max_length=128,
+        validation_alias=AliasChoices("confirmPassword", "confirm_password"),
+    )
+
+    @model_validator(mode="after")
+    def passwords_must_match(self) -> "ResetPasswordRequest":
+        if self.new_password != self.confirm_password:
+            raise ValueError("New password and confirmation must match.")
+        return self
+
+
+class AuthMessage(BaseModel):
+    message: str
 
 
 def create_auth_result(user: dict[str, object]) -> AuthResult:
@@ -195,6 +236,214 @@ async def signup(credentials: SignupCredentials) -> AuthResult:
             detail="The database did not return the created account.",
         )
     return create_auth_result(user)
+
+
+def issue_password_reset_token(
+    connection: psycopg.Connection,
+    email: str,
+    token_hash: str,
+    expires_at: datetime,
+) -> tuple[str, str] | None:
+    connection.execute(
+        "DELETE FROM public.password_reset_tokens WHERE expires_at <= now()"
+    )
+    user = connection.execute(
+        """
+        SELECT id, email
+        FROM public.app_users
+        WHERE email = %s
+        """,
+        (email,),
+    ).fetchone()
+    if user is None:
+        return None
+
+    connection.execute(
+        "DELETE FROM public.password_reset_tokens WHERE user_id = %s",
+        (user["id"],),
+    )
+    connection.execute(
+        """
+        INSERT INTO public.password_reset_tokens (token_hash, user_id, expires_at)
+        VALUES (%s, %s, %s)
+        """,
+        (token_hash, user["id"], expires_at),
+    )
+    return str(user["id"]), str(user["email"])
+
+
+def consume_password_reset_token(
+    connection: psycopg.Connection,
+    token_hash: str,
+    new_password: str,
+) -> bool:
+    reset_token = connection.execute(
+        """
+        SELECT user_id
+        FROM public.password_reset_tokens
+        WHERE token_hash = %s AND expires_at > now()
+        FOR UPDATE
+        """,
+        (token_hash,),
+    ).fetchone()
+    if reset_token is None:
+        return False
+
+    password_digest = hash_password(new_password)
+    updated_user = connection.execute(
+        """
+        UPDATE public.app_users
+        SET password_hash = %s
+        WHERE id = %s
+        RETURNING id
+        """,
+        (password_digest, reset_token["user_id"]),
+    ).fetchone()
+    if updated_user is None:
+        raise psycopg.DatabaseError("Reset token references a missing user.")
+
+    connection.execute(
+        "DELETE FROM public.password_reset_tokens WHERE user_id = %s",
+        (reset_token["user_id"],),
+    )
+    return True
+
+
+def deliver_password_reset_email(
+    account_email: str,
+    reset_url: str,
+    token_hash: str,
+) -> None:
+    try:
+        send_password_reset_email(account_email, reset_url)
+    except (OSError, smtplib.SMTPException, ValueError) as error:
+        logger.warning(
+            "Password reset email delivery failed (%s).",
+            type(error).__name__,
+        )
+        try:
+            run_query(
+                lambda connection: connection.execute(
+                    """
+                    DELETE FROM public.password_reset_tokens
+                    WHERE token_hash = %s
+                    """,
+                    (token_hash,),
+                )
+            )
+        except (HTTPException, psycopg.Error) as cleanup_error:
+            logger.error(
+                "Undelivered password reset token cleanup failed (%s).",
+                type(cleanup_error).__name__,
+            )
+
+
+@router.post(
+    "/forgot-password",
+    response_model=AuthMessage,
+    status_code=202,
+)
+async def forgot_password(
+    credentials: ForgotPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> AuthMessage:
+    email = str(credentials.email).lower()
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not password_reset_rate_limiter.allow(email, client_ip):
+        return AuthMessage(message=PASSWORD_RESET_GENERIC_MESSAGE)
+
+    try:
+        _, _, _, _, frontend_url = validate_password_reset_configuration()
+    except ValueError as error:
+        logger.error(
+            "Password reset email configuration is invalid (%s).",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Password reset is temporarily unavailable.",
+        ) from error
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    reset_url = build_password_reset_url(frontend_url, raw_token)
+    expires_at = datetime.now(timezone.utc) + PASSWORD_RESET_TOKEN_LIFETIME
+
+    try:
+        account = await asyncio.to_thread(
+            run_query,
+            lambda connection: issue_password_reset_token(
+                connection,
+                email,
+                token_hash,
+                expires_at,
+            ),
+        )
+    except HTTPException as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Password reset is temporarily unavailable.",
+        ) from error
+    except psycopg.Error as error:
+        logger.error(
+            "Password reset token could not be stored (%s).",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Password reset is temporarily unavailable.",
+        ) from error
+
+    if account is None:
+        return AuthMessage(message=PASSWORD_RESET_GENERIC_MESSAGE)
+
+    _, account_email = account
+    background_tasks.add_task(
+        deliver_password_reset_email,
+        account_email,
+        reset_url,
+        token_hash,
+    )
+
+    return AuthMessage(message=PASSWORD_RESET_GENERIC_MESSAGE)
+
+
+@router.post("/reset-password", response_model=AuthMessage)
+async def reset_password(credentials: ResetPasswordRequest) -> AuthMessage:
+    token_hash = hashlib.sha256(credentials.token.encode("utf-8")).hexdigest()
+    try:
+        token_consumed = await asyncio.to_thread(
+            run_query,
+            lambda connection: consume_password_reset_token(
+                connection,
+                token_hash,
+                credentials.new_password,
+            ),
+        )
+    except HTTPException as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The password could not be reset right now.",
+        ) from error
+    except psycopg.Error as error:
+        logger.error(
+            "Password reset database transaction failed (%s).",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="The password could not be reset right now.",
+        ) from error
+
+    if not token_consumed:
+        raise HTTPException(
+            status_code=400,
+            detail="The reset link is invalid, expired, or has already been used.",
+        )
+
+    return AuthMessage(message="Your password has been reset. You can now log in.")
 
 
 @router.get("/google", include_in_schema=True)
