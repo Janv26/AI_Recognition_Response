@@ -74,7 +74,7 @@ function Chat({
 
         <div className="history-heading">
           <span>YOUR HISTORY</span>
-          <button aria-label="History help" title="Your recent conversations"><CircleHelp size={14} /></button>
+          
         </div>
 
         <div className="history-list">
