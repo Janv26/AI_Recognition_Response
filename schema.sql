@@ -44,12 +44,23 @@ CREATE TABLE IF NOT EXISTS public.google_login_codes (
     expires_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS public.password_reset_tokens (
+    token_hash text PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES public.app_users (id) ON DELETE CASCADE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS chat_history_user_created_at_idx
     ON public.chat_history (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS conversations_user_created_at_idx
     ON public.conversations (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS messages_conversation_idx
     ON public.messages (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_created_at_idx
+    ON public.password_reset_tokens (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS password_reset_tokens_expires_at_idx
+    ON public.password_reset_tokens (expires_at);
 
 ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_history ENABLE ROW LEVEL SECURITY;
@@ -120,3 +131,8 @@ GRANT USAGE, SELECT ON SEQUENCE public.messages_id_seq TO authenticated;
 
 ALTER TABLE public.google_login_codes ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.google_login_codes FROM anon, authenticated;
+
+ALTER TABLE public.password_reset_tokens ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.password_reset_tokens FROM PUBLIC, anon, authenticated;
+
+DELETE FROM public.password_reset_tokens WHERE expires_at <= now();

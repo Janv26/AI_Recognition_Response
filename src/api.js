@@ -1,7 +1,7 @@
 // Shared API config and helpers.
 // This file keeps all fetch logic in one place so every screen can reuse it.
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8001').replace(/\/$/, '')
 export const TOKEN_KEY = 'ai-recognition-token'
 export const USER_KEY = 'ai-recognition-user'
 console.log("Backend URL:", API_BASE);

@@ -1,5 +1,5 @@
 import { ArrowUp, AudioLines, ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { friendlyError, request, API_BASE } from './api'
 
 function GoogleMark() {
@@ -14,27 +14,88 @@ function GoogleMark() {
 }
 
 function AuthScreen({ onAuthenticated, externalError, clearError }) {
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState(() => {
+    if (window.location.pathname === '/forgot-password') return 'forgot'
+    if (window.location.pathname === '/reset-password') return 'reset'
+    return 'login'
+  })
   const [fullname, setFullname] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [resetToken, setResetToken] = useState(
+    () => window.location.pathname === '/reset-password'
+      ? new URLSearchParams(window.location.search).get('token') || ''
+      : '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const message = error || externalError
+  const isEmailAuth = mode === 'login' || mode === 'signup'
+
+  useEffect(() => {
+    if (window.location.pathname !== '/reset-password') return
+
+    const resetUrl = new URL(window.location.href)
+    if (!resetUrl.searchParams.has('token')) return
+
+    resetUrl.searchParams.delete('token')
+    window.history.replaceState(
+      {},
+      '',
+      `${resetUrl.pathname}${resetUrl.search}${resetUrl.hash}`,
+    )
+  }, [])
 
   async function submit(event) {
     event.preventDefault()
     setError('')
+    setSuccess('')
 
     if (mode === 'signup' && password !== confirmPassword) {
       setError('Those passwords do not match yet.')
       return
     }
 
+    if (mode === 'reset' && password !== confirmPassword) {
+      setError('Those passwords do not match yet.')
+      return
+    }
+
+    if (mode === 'reset' && !resetToken) {
+      setError('This reset link is invalid or has expired. Request a new one.')
+      return
+    }
+
     setBusy(true)
 
     try {
+      if (mode === 'forgot') {
+        const result = await request('/api/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ email }),
+        })
+        setSuccess(result.message)
+        return
+      }
+
+      if (mode === 'reset') {
+        const result = await request('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            token: resetToken,
+            new_password: password,
+            confirmPassword: confirmPassword,
+          }),
+        })
+        setSuccess(result.message)
+        setResetToken('')
+        setPassword('')
+        setConfirmPassword('')
+        return
+      }
+
       const payload = mode === 'signup'
         ? { fullname, email, password, confirmPassword }
         : { email, password }
@@ -81,22 +142,36 @@ function AuthScreen({ onAuthenticated, externalError, clearError }) {
       <section className="auth-side">
         <div className="auth-card">
           <div className="auth-card-heading">
-            <h2>{mode === 'login' ? 'Welcome back.' : 'Come on in.'}</h2>
-            <p>{mode === 'login' ? 'Pick up where curiosity left off.' : 'A new perspective is one question away.'}</p>
+            <h2>
+              {mode === 'login' && 'Welcome back.'}
+              {mode === 'signup' && 'Come on in.'}
+              {mode === 'forgot' && 'Forgot your password?'}
+              {mode === 'reset' && 'Choose a new password.'}
+            </h2>
+            <p>
+              {mode === 'login' && 'Pick up where curiosity left off.'}
+              {mode === 'signup' && 'A new perspective is one question away.'}
+              {mode === 'forgot' && 'Enter your email and we’ll send a reset link if an account exists.'}
+              {mode === 'reset' && 'Choose a new password for your account.'}
+            </p>
           </div>
 
-          <button
-            className="google-button"
-            onClick={() => {
-              clearError()
-              window.location.href = `${API_BASE}/api/auth/google`
-            }}
-            type="button"
-          >
-            <GoogleMark /> Continue with Google
-          </button>
+          {isEmailAuth && (
+            <button
+              className="google-button"
+              onClick={() => {
+                clearError()
+                window.location.href = `${API_BASE}/api/auth/google`
+              }}
+              type="button"
+            >
+              <GoogleMark /> Continue with Google
+            </button>
+          )}
 
-          <div className="auth-divider"><span /> <small>or with email</small> <span /></div>
+          {isEmailAuth && (
+            <div className="auth-divider"><span /> <small>or with email</small> <span /></div>
+          )}
 
           <form onSubmit={submit}>
             {mode === 'signup' && (
@@ -106,32 +181,65 @@ function AuthScreen({ onAuthenticated, externalError, clearError }) {
               </>
             )}
 
-            <label className="field-label" htmlFor="email">Email address</label>
-            <input id="email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
-
-            <label className="field-label" htmlFor="password">Password</label>
-            <input id="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
-
-            {mode === 'signup' && (
+            {mode !== 'reset' && (
               <>
-                <label className="field-label" htmlFor="confirm-password">Confirm password</label>
-                <input id="confirm-password" type="password" autoComplete="new-password" placeholder="Enter your password again" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} required />
+                <label className="field-label" htmlFor="email">Email address</label>
+                <input id="email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
               </>
             )}
 
+            {(mode === 'login' || mode === 'signup' || mode === 'reset') && (
+              <>
+                <label className="field-label" htmlFor="password">
+                  {mode === 'reset' ? 'New password' : 'Password'}
+                </label>
+                <input id="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} required />
+              </>
+            )}
+
+            {(mode === 'signup' || mode === 'reset') && (
+              <>
+                <label className="field-label" htmlFor="confirm-password">
+                  Confirm {mode === 'reset' ? 'new ' : ''}password
+                </label>
+                <input id="confirm-password" type="password" autoComplete="new-password" placeholder="Enter your password again" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} maxLength={128} required />
+              </>
+            )}
+
+            {mode === 'login' && (
+              <a className="forgot-password-link" href="/forgot-password">
+                Forgot Password?
+              </a>
+            )}
+
             {message && <div className="auth-error" role="alert">{message}</div>}
+            {success && <div className="auth-success" role="status">{success}</div>}
 
             <button className="auth-submit" type="submit" disabled={busy}>
-              {busy ? 'One moment…' : mode === 'login' ? <>Login<ArrowUp size={17} /></> : <>Sign Up <ArrowUp size={17} /></>}
+              {busy
+                ? 'One moment…'
+                : mode === 'login'
+                  ? <>Login<ArrowUp size={17} /></>
+                  : mode === 'signup'
+                    ? <>Sign Up <ArrowUp size={17} /></>
+                    : mode === 'forgot'
+                      ? 'Send reset link'
+                      : 'Reset password'}
             </button>
           </form>
 
-          <p className="auth-switch">
-            {mode === 'login' ? 'New around here?' : 'Already have an account?'}{' '}
-            <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); clearError() }}>
-              {mode === 'login' ? 'Create an account' : 'Sign in instead'}
-            </button>
-          </p>
+          {mode === 'login' || mode === 'signup' ? (
+            <p className="auth-switch">
+              {mode === 'login' ? 'New around here?' : 'Already have an account?'}{' '}
+              <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setSuccess(''); clearError() }}>
+                {mode === 'login' ? 'Create an account' : 'Sign in instead'}
+              </button>
+            </p>
+          ) : (
+            <p className="auth-switch">
+              <a href="/">Back to login</a>
+            </p>
+          )}
         </div>
 
         <div className="auth-legal">By continuing, you agree to use AI Voice Assistant thoughtfully. <span>·</span> Made for curious minds.</div>
