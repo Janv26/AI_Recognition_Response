@@ -10,6 +10,9 @@ function App() {
   // trail for chat preview:
     const isChatPreview =
     window.location.pathname === '/chat-preview'
+  const isPasswordRoute = ['/forgot-password', '/reset-password'].includes(
+    window.location.pathname,
+  )
 
   const [previewMessages, setPreviewMessages] = useState([])
   const [previewInput, setPreviewInput] = useState('')
@@ -64,7 +67,7 @@ function App() {
 
   // 5) Load user data after login
   useEffect(() => {
-    if (!token) {
+    if (!token || isPasswordRoute) {
       setAuthChecking(false)
       return
     }
@@ -99,7 +102,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [token])
+  }, [token, isPasswordRoute])
 
   function saveSession(result) {
     const accessToken = result.access_token || result.token
@@ -326,7 +329,7 @@ function startVoiceInput() {
     )
   }
 
-  if (!token) {
+  if (!token || isPasswordRoute) {
     return <AuthScreen onAuthenticated={saveSession} externalError={error} clearError={() => setError('')} />
   }
 

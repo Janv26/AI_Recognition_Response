@@ -351,13 +351,18 @@
 .auth-card .field-label { margin: 0 0 7px; }
 .auth-card input { margin-bottom: 15px; font-size: 13px; }
 .auth-card input::placeholder { color: #aeb3aa; }
+.forgot-password-link { align-self: flex-end; margin: -5px 0 13px; color: #a5523c; font-size: 11px; font-weight: 650; text-decoration: none; }
+.forgot-password-link:hover { text-decoration: underline; }
 .auth-submit { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px; margin-top: 4px; border: 1px solid #1e0737; border-radius: 5px; color: #f9f8f1; background: #1e0737; font: inherit; font-size: 13px; font-weight: 650; transition: background 130ms ease; }
 .auth-submit svg { transform: rotate(45deg); }
 .auth-submit:hover:not(:disabled) { background: #3b2d49; }
 .auth-submit:disabled { opacity: .65; }
 .auth-error { margin: -2px 0 11px; padding: 9px 10px; border: 1px solid #efd8d0; border-radius: 5px; color: #96543f; background: #fcf2ee; font-size: 10px; line-height: 1.5; }
+.auth-success { margin: -2px 0 11px; padding: 9px 10px; border: 1px solid #d5e5d4; border-radius: 5px; color: #456b4b; background: #f0f7ef; font-size: 10px; line-height: 1.5; }
 .auth-switch { margin: 18px 0 0; color: #858b82; text-align: center; font-size: 13px; }
 .auth-switch button { padding: 0; border: 0; color: #a5523c; background: transparent; font: inherit; font-weight: 680; }
+.auth-switch a { color: #a5523c; font-weight: 680; text-decoration: none; }
+.auth-switch a:hover { text-decoration: underline; }
 .auth-switch button:hover { text-decoration: underline; }
 .auth-legal { color: #a3a79f; text-align: center; font-size: 11px; line-height: 1.6; }
 .auth-legal span { padding: 0 4px; color: #c68468; }
